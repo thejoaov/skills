@@ -120,3 +120,21 @@ bun run db:studio      # Open database UI (port 3001)
 | DB Studio (Prisma/Drizzle) | 3001 |
 | React Email dev | 3002 |
 | Expo Atlas | 3003 |
+
+### Workspace helper: bun f
+
+Run any `bun` command inside a specific workspace without `cd`. Accepts package name, folder name, short name, or partial match:
+
+```bash
+bun f db run dev
+bun f web add zod
+bun f native run atlas
+```
+
+Wire it in the root `package.json`:
+
+```json
+{ "scripts": { "f": "bash ./scripts/f" } }
+```
+
+Copy `scripts/f` from this skill into the project's `scripts/` directory. The script is included alongside this skill at `scripts/f`.

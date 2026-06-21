@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+	echo "Usage: bun f <workspace> <bun-args...>" >&2
+	exit 1
+}
+
+if [[ $# -lt 2 ]]; then
+	usage
+fi
+
+target="$1"
+shift
+
+workspace_files=()
+while IFS= read -r file; do
+	workspace_files+=("$file")
+done < <(
+	find "$ROOT_DIR/apps" "$ROOT_DIR/packages" \
+		-mindepth 2 -maxdepth 2 \
+		-name package.json \
+		-not -path '*/node_modules/*' \
+		-not -path '*/dist/*' \
+		-not -path '*/build/*' \
+		2>/dev/null | sort
+)
+
+if [[ ${#workspace_files[@]} -eq 0 ]]; then
+	echo "No workspaces found under apps/ or packages/." >&2
+	exit 1
+fi
+
+names=()
+dirs=()
+folder_names=()
+short_names=()
+
+for pkg_json in "${workspace_files[@]}"; do
+	pkg_dir="$(dirname "$pkg_json")"
+	pkg_name="$(grep -m1 '"name"' "$pkg_json" | sed -E 's/.*"name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+	if [[ -z "$pkg_name" ]]; then
+		continue
+	fi
+	names+=("$pkg_name")
+	dirs+=("$pkg_dir")
+	folder_names+=("$(basename "$pkg_dir")")
+	short_names+=("${pkg_name##*/}")
+done
+
+match_indexes=()
+add_match() {
+	local candidate_index="$1"
+	for existing in "${match_indexes[@]:-}"; do
+		if [[ "$existing" == "$candidate_index" ]]; then
+			return
+		fi
+	done
+	match_indexes+=("$candidate_index")
+}
+
+# 1. Exact full name match (@scope/name)
+for i in "${!names[@]}"; do
+	if [[ "${names[$i]}" == "$target" ]]; then
+		add_match "$i"
+	fi
+done
+
+# 2. Exact folder name match
+if [[ ${#match_indexes[@]} -eq 0 ]]; then
+	for i in "${!folder_names[@]}"; do
+		if [[ "${folder_names[$i]}" == "$target" ]]; then
+			add_match "$i"
+		fi
+	done
+fi
+
+# 3. Exact short name match (part after /)
+if [[ ${#match_indexes[@]} -eq 0 ]]; then
+	for i in "${!short_names[@]}"; do
+		if [[ "${short_names[$i]}" == "$target" ]]; then
+			add_match "$i"
+		fi
+	done
+fi
+
+# 4. Suffix match (@scope/target)
+if [[ ${#match_indexes[@]} -eq 0 ]]; then
+	for i in "${!names[@]}"; do
+		if [[ "${names[$i]}" == */"$target" ]]; then
+			add_match "$i"
+		fi
+	done
+fi
+
+# 5. Partial/substring match (fallback)
+if [[ ${#match_indexes[@]} -eq 0 ]]; then
+	for i in "${!names[@]}"; do
+		if [[ "${names[$i]}" == *"$target"* ]] || [[ "${folder_names[$i]}" == *"$target"* ]]; then
+			add_match "$i"
+		fi
+	done
+fi
+
+if [[ ${#match_indexes[@]} -eq 0 ]]; then
+	echo "No workspace matched '$target'." >&2
+	echo >&2
+	echo "Available workspaces:" >&2
+	for i in "${!names[@]}"; do
+		rel_dir="${dirs[$i]#"$ROOT_DIR"/}"
+		echo "  - ${short_names[$i]} (${names[$i]}) -> $rel_dir" >&2
+	done
+	exit 1
+fi
+
+if [[ ${#match_indexes[@]} -gt 1 ]]; then
+	echo "Ambiguous workspace '$target'. Matches:" >&2
+	for idx in "${match_indexes[@]}"; do
+		rel_dir="${dirs[$idx]#"$ROOT_DIR"/}"
+		echo "  - ${short_names[$idx]} (${names[$idx]}) -> $rel_dir" >&2
+	done
+	exit 1
+fi
+
+selected_index="${match_indexes[0]}"
+selected_dir="${dirs[$selected_index]}"
+
+(
+	cd "$selected_dir"
+	exec bun "$@"
+)
