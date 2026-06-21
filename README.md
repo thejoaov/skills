@@ -54,4 +54,6 @@ Skills for academic work and data analysis.
 
 - **[latex-academic-br](./skills/latex-academic-br/SKILL.md)** — LaTeX workflow for Brazilian academic papers following ABNT via abnTeX2: project structure, LuaLaTeX + Mermaid diagram rendering, Makefile build (PDF + DOCX via Pandoc), and GitHub Actions CI.
 
+- **[abnt2-review](./skills/abnt2-review/SKILL.md)** — Full review checklist for Brazilian academic papers (TCC, dissertação, artigo) against ABNT standards (NBR 14724, NBR 6023, NBR 10520, NBR 6028). Covers formatting, document structure, citations, references, figures/tables/quadros, and orthographic and stylistic correctness in pt-BR.
+
 - **[llm-ml-analysis](./skills/llm-ml-analysis/SKILL.md)** — Build a structured prompt from ML classification metrics (holdout + CV across multiple models) and call Gemini or Ollama to generate a comparative Markdown report with tables, interpretation, and recommendations.
