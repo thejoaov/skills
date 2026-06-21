@@ -273,3 +273,186 @@ Gerado pelo BTS CLI. Rastreia as opções selecionadas no scaffold para que `bun
 ```
 
 Não editar manualmente. Seguro deletar se o comando `add` não for mais necessário.
+
+---
+
+## How-to: migrar de .env separados para .env centralizado na raiz
+
+O BTS scaffolda com `.env` dentro de cada app. Este guia migra para o padrão de arquivo único na raiz.
+
+### 1. Consolidar os arquivos .env existentes
+
+Coletar todas as variáveis dos arquivos espalhados e unificá-las num único `.env` na raiz. Variáveis duplicadas com o mesmo valor são mescladas; conflitos devem ser resolvidos manualmente.
+
+```bash
+# Ver todos os .env existentes no projeto
+find . -name ".env*" -not -path "*/node_modules/*" -not -path "*/.git/*"
+```
+
+Exemplo de estrutura BTS padrão antes da migração:
+```
+apps/web/.env
+apps/web/.env.local
+apps/native/.env
+packages/db/.env
+```
+
+Copiar o conteúdo de todos para `/.env` na raiz, removendo duplicatas. Depois apagar os arquivos originais.
+
+### 2. Adicionar dotenv como dependência de packages/env
+
+```bash
+bun add dotenv --filter @myapp/env
+```
+
+### 3. Reescrever packages/env/src/server.ts
+
+Substituir o conteúdo atual — que provavelmente usa `runtimeEnv: process.env` sem carregar nenhum arquivo — pelo padrão com resolução da raiz:
+
+```typescript
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+import { createEnv } from "@t3-oss/env-core"
+import dotenv from "dotenv"
+import { z } from "zod"
+
+const workspaceRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..", // packages/env/src → packages/env → packages → raiz
+)
+
+dotenv.config({
+  path: path.join(workspaceRoot, process.env.APP_ENV_FILE ?? ".env"),
+  quiet: true,
+})
+
+// Se o projeto usa SQLite com path relativo, reescrever para absoluto
+const databaseUrl = process.env.DATABASE_URL
+if (databaseUrl?.startsWith("file:")) {
+  const sqlitePath = databaseUrl.slice("file:".length)
+  process.env.DATABASE_URL = `file:${
+    path.isAbsolute(sqlitePath)
+      ? sqlitePath
+      : path.resolve(workspaceRoot, sqlitePath)
+  }`
+}
+
+export const env = createEnv({
+  server: {
+    // mover aqui todas as variáveis de servidor que estavam nos apps
+    DATABASE_URL: z.string().min(1),
+    BETTER_AUTH_SECRET: z.string().min(32),
+    BETTER_AUTH_URL: z.url(),
+    NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+    // ... restante das variáveis
+  },
+  runtimeEnv: process.env,
+  emptyStringAsUndefined: true,
+})
+```
+
+**Ajustar a profundidade do `path.resolve`** conforme a localização real do arquivo compilado. Verificar com:
+
+```bash
+# Compilar e checar onde o output vai parar
+bun run --filter @myapp/env build
+# Contar quantos níveis separam o output compilado da raiz do monorepo
+```
+
+### 4. Ajustar packages/env/src/native.ts
+
+O Expo faz substituição estática de `process.env.X` no bundle — `process.env` como objeto não funciona. O `runtimeEnv` precisa ser explícito:
+
+```typescript
+// ANTES (problemático no Expo)
+runtimeEnv: process.env,
+
+// DEPOIS (correto)
+runtimeEnv: {
+  EXPO_PUBLIC_SERVER_URL: process.env.EXPO_PUBLIC_SERVER_URL,
+  EXPO_PUBLIC_APP_ENV: process.env.EXPO_PUBLIC_APP_ENV,
+  // ... listar cada variável explicitamente
+},
+```
+
+### 5. Remover carregamento de dotenv dos apps
+
+Se `apps/web` ou `apps/native` tinham lógica própria de carregamento de `.env` (ex.: `dotenv.config()` em `next.config.ts` ou `app.config.ts`), remover. O carregamento agora é feito uma única vez em `packages/env/src/server.ts`.
+
+**Next.js** carrega `NEXT_PUBLIC_*` automaticamente do `.env.local` e `.env` — mas esses arquivos agora não existem mais dentro de `apps/web/`. Para que o Next.js encontre as variáveis, há duas opções:
+
+- **Opção A** (recomendada): deixar o `packages/env` ser importado antes de qualquer uso de `process.env` — o `dotenv.config` já terá populado o ambiente.
+- **Opção B**: criar um `apps/web/.env` com apenas as variáveis `NEXT_PUBLIC_*`, apontando para os valores (sem duplicar segredos). Menos elegante mas funciona se o Next.js precisar das vars antes de qualquer import.
+
+**Expo** lê `EXPO_PUBLIC_*` de `.env` na raiz do projeto Expo (`apps/native/`) via `expo-constants`. Para que o Expo encontre o `.env` da raiz do monorepo, adicionar ao `apps/native/app.config.ts`:
+
+```typescript
+import "dotenv/config" // carrega o .env da raiz se APP_ENV_FILE não estiver definido
+// ou
+import dotenv from "dotenv"
+import path from "node:path"
+dotenv.config({ path: path.resolve(__dirname, "../../.env") })
+```
+
+Alternativamente, configurar `expo-env` no `package.json` de `apps/native`:
+```json
+{
+  "expo": {
+    "experiments": {
+      "supportsBundlerPlugins": true
+    }
+  }
+}
+```
+
+### 6. Atualizar .gitignore
+
+Garantir que os novos arquivos da raiz estejam ignorados e os antigos removidos:
+
+```gitignore
+# Env files — centralizados na raiz
+.env
+.env.preview
+.env.production
+.env.*.local
+.env-local.bkp
+
+# Remover entradas antigas se existirem:
+# apps/web/.env
+# apps/native/.env
+# packages/db/.env
+```
+
+### 7. Criar .env.example
+
+Commitar um `.env.example` na raiz com todas as variáveis e valores placeholder:
+
+```bash
+# Gerar um .env.example a partir do .env atual, apagando os valores
+sed 's/=.*/=/' .env > .env.example
+# Revisar manualmente: adicionar comentários, remover valores sensíveis, ajustar placeholders
+```
+
+### 8. Criar .env.preview e .env.production
+
+Copiar o `.env` e ajustar os valores para cada ambiente:
+
+```bash
+cp .env .env.preview
+cp .env .env.production
+# Editar cada um com os valores corretos do ambiente
+```
+
+### 9. Verificar
+
+```bash
+# Testar que o carregamento funciona
+bun run dev
+
+# Testar com o arquivo de preview
+APP_ENV_FILE=.env.preview bun run dev
+
+# Checar que nenhum app ainda referencia .env próprio
+find apps packages -name ".env" -not -path "*/node_modules/*"
+# Deve retornar vazio (ou apenas arquivos que você decidiu manter intencionalmente)
+```
