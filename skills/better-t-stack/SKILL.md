@@ -14,7 +14,7 @@ references/
   stack-choices.md      ORM options (Prisma vs Drizzle), database options, package manager choices
   project-structure.md  Standard BTS package layout and what each package owns
   tooling-setup.md      Biome, Lefthook, Ruler, Turborepo configuration patterns
-  env-config.md         @t3-oss/env patterns, packages/env split by runtime
+  env-config.md         Centralized root .env, multi-environment files, packages/env split by runtime
   bts-jsonc.md          bts.jsonc format and what it tracks
 ```
 
@@ -24,6 +24,7 @@ references/
 - **Adding features to a BTS project** — knowing which package to touch, how to wire new services
 - **Debugging BTS-specific wiring** — auth setup, tRPC client/server wiring, Expo integration
 - **Evaluating technology choices** — comparing Prisma vs Drizzle, SQLite vs Postgres, Bun vs pnpm
+- **Setting up environment variables** — centralized root `.env`, multi-environment files, `packages/env` split
 
 ## Quick Reference
 
@@ -57,6 +58,42 @@ Interactive prompts select:
 | Agent sync | Ruler | — |
 
 See `references/stack-choices.md` for tradeoffs.
+
+### Environment variables — centralized at the root
+
+**The BTS default scatters `.env` files inside each app. This pattern does not follow that.** All env files live at the monorepo root and are loaded from there by `packages/env`.
+
+```
+/                     ← monorepo root
+  .env                ← local development (gitignored)
+  .env.example        ← committed template for new devs
+  .env.preview        ← preview/staging values (gitignored)
+  .env.production     ← production values (gitignored)
+  packages/env/       ← reads the root .env, validates per-runtime
+  apps/web/           ← no own .env
+  apps/native/        ← no own .env
+```
+
+`packages/env/src/server.ts` resolves the workspace root from `import.meta.url` and loads the correct file with `dotenv`:
+
+```typescript
+const workspaceRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../..", // packages/env/src → packages/env → packages → root
+)
+dotenv.config({ path: path.join(workspaceRoot, process.env.APP_ENV_FILE ?? ".env") })
+```
+
+To use a different env file locally:
+
+```bash
+APP_ENV_FILE=.env.preview bun run dev
+APP_ENV_FILE=.env.production bun run dev
+```
+
+In CI/CD (Vercel, GitHub Actions), variables are injected directly — no file is read.
+
+See `references/env-config.md` for the full `server.ts`, `web.ts`, `native.ts` implementation and import rules.
 
 ### Adding features after scaffold
 
