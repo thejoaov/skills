@@ -5,15 +5,26 @@ description: Synthesize the current conversation into a PRD saved under docs/. U
 
 This skill synthesizes what has already been discussed into a PRD. Do NOT interview the user — capture and structure what you already know from the conversation and codebase.
 
+## Dependency & Library Guidance (Build vs. Buy)
+
+When synthesizing implementation decisions into the PRD:
+- **Default (Zero-Dependency Bias):** Favor manual / in-house implementation using existing project primitives, standard libraries, or native APIs to prevent bundle bloat and dependency sprawl.
+- **Complex Domains or Top Libraries:** For complex or security-sensitive domains (RBAC, OAuth/Auth, Payments/IAP, Cryptography, State Machines, Data Sync/CRDTs, Rich Text/PDF, Native Wrappers) or when a battle-tested library with superior maintainability, low weight, and strong DX is available:
+  - Document the dependency choice under `Implementation Decisions`.
+  - If a library is adopted, explain why it outweighs manual implementation.
+  - If building manually, state the estimated implementation difficulty (Low, Medium, High, Critical) and key risks/edge cases.
+
 ## Process
 
 1. **Explore the codebase** to understand the current state of the areas touched by this feature, if you haven't already. Note the existing modules, boundaries, and naming conventions — use them throughout the document.
 
 2. **Identify the seams** — the points in the codebase where this feature will connect to existing code. Prefer existing seams to new ones. The fewer seams, the better; the ideal is one. State which packages and layers are involved (`packages/api`, `packages/db`, `apps/web`, etc.).
 
-3. **Write the PRD** using the template below. Save it to `docs/[feature-name]/prd.md`. Create the directory if it doesn't exist.
+3. **Evaluate Third-Party Libraries vs. Manual Implementation** — review conversation or spike findings regarding libraries vs. manual implementation. Identify any adopted packages or manual build difficulty.
 
-4. **Surface open questions** at the end of the document — anything unresolved, ambiguous, or requiring a product decision. Do not block writing the PRD on these; surface them so the user can address them separately.
+4. **Write the PRD** using the template below. Save it to `docs/[feature-name]/prd.md`. Create the directory if it doesn't exist.
+
+5. **Surface open questions** at the end of the document — anything unresolved, ambiguous, or requiring a product decision. Do not block writing the PRD on these; surface them so the user can address them separately.
 
 ## Template
 
@@ -48,6 +59,10 @@ The modules and boundaries involved. Do not include file paths or code snippets 
 - **New procedures / endpoints:** ...
 - **Schema changes:** ...
 - **Auth / permission requirements:** ...
+- **Dependency & Library Decisions:**
+  - **Chosen Approach:** [Manual Implementation OR Library Name]
+  - **Rationale:** Why this choice was made (avoiding bloat vs. handling domain complexity).
+  - **Manual Build Difficulty (if manual):** [Low | Medium | High | Critical] and key edge cases to handle.
 - **Architectural decisions already made:** ...
 
 ## Testing Decisions
